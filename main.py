@@ -1,8 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import telebot
-
-import config
+import os
 
 
 def maxima_search(search_thing):
@@ -93,7 +92,8 @@ def get_percent_spans(divs):
     return div_obj
 
 
-bot = telebot.TeleBot(config.TOKEN)
+API_KEY = os.environ.get("API_KEY")
+bot = telebot.TeleBot(API_KEY)
 
 
 @bot.message_handler(commands=['start'])
