@@ -1,20 +1,26 @@
 import re
-
-import requests
-from bs4 import BeautifulSoup
-import telebot
+import aiohttp
 import os
+import asyncio
+from bs4 import BeautifulSoup
+from aiogram import Bot, Dispatcher, types, F, Router
+from aiogram.types import Message
+from aiogram.filters import Command
+
+router = Router()
+
+
+async def main():
+    token = os.environ.get("API_KEY")
+    bot = Bot(token=token, parse_mode='HTML')
+    dp = Dispatcher()
+    dp.include_router(router)
+
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 
 class DiscountWrapper:
-    title: ''
-    old_price: 0
-    new_price: 0
-    paldies_price: 0
-    percent: 0
-    image_url: ''
-    date: ''
-
     def __init__(self):
         self.title = None
         self.old_price = None
@@ -46,10 +52,11 @@ class DiscountWrapper:
         self.date = date
 
 
-def maxima_search(search_thing):
+async def maxima_search(search_thing):
     url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
-    response = requests.get(url)
-    html_content = response.text
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            html_content = await response.text()
     soup = BeautifulSoup(html_content, 'html.parser')
     data = soup.find_all("div", class_="col-third offer-item")
     return scrap_data(data)
@@ -129,7 +136,6 @@ def scrap_data(data):
 
 
 def get_percent_spans(divs):
-    global span, classes
     div_spans = divs.find_all("span")
     div_obj = ''
     for span in div_spans:
@@ -143,31 +149,26 @@ def get_percent_spans(divs):
     return div_obj
 
 
-API_KEY = os.environ.get("API_KEY")
-bot = telebot.TeleBot(API_KEY)
-
-
-@bot.message_handler(commands=['start'])
-def start_command(message):
-    bot.send_message(
-        message.chat.id,
+@router.message(Command('start'))
+async def start_command(message: types.Message):
+    await message.answer(
         'Hello! This is discount search bot. \n'
         'Currently it works only with maxima offers. \n'
         'To use it, just type product name or type (you can use EN letters e.g. Kaku bariba)\n'
     )
 
 
-@bot.message_handler(content_types=['text'])
-def search(message):
-    results = maxima_search(message.text)
+@router.message(F.text)
+async def search(message: Message):
+    results = await maxima_search(message.text)
     if not results:
-        bot.send_message(message.chat.id, 'Nothing found')
+        await message.answer('Nothing found')
     else:
         for result in results:
             maxima_prefix = 'https://www.maxima.lv/'
             img_url = maxima_prefix + result.image_url
             cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
-            bot.send_photo(message.chat.id, cleaned_url)
+            await message.answer_photo(cleaned_url)
 
             formatted_message = ''
             if result.old_price is not None:
@@ -179,7 +180,8 @@ def search(message):
             if result.date is not None:
                 formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
 
-            bot.send_message(message.chat.id, formatted_message, parse_mode='html')
+            await message.answer(formatted_message)
 
 
-bot.infinity_polling()
+if __name__ == "__main__":
+    asyncio.run(main())
