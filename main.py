@@ -2,28 +2,39 @@ import re
 import aiohttp
 import os
 import asyncio
+import logging
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
 from aiogram.filters import Command
 
-print('Initializing router')
+logging.basicConfig(level=logging.INFO)
+logging.info('Initializing router')
 router = Router()
-print(f'Router initialized: {router.name}')
+logging.info(f'Router initialized: {router.name}')
+bot = None
+dp = None
 
 
 async def main():
-    print("Generating bot")
-    token = os.environ.get("API_KEY")
-    bot = Bot(token=token, parse_mode='HTML')
-    dp = Dispatcher()
-    dp.include_router(router)
-    print(f'Bot initialized with id: {bot.id}')
+    global bot, dp
+    logging.info('Initializing bot')
+    try:
+        token = os.environ.get("API_KEY")
+        bot = Bot(token=token, parse_mode='HTML')
+        dp = Dispatcher()
+        dp.include_router(router)
+        logging.info(f'Bot initialized with id: {bot.id}')
+    except Exception as e:
+        logging.error(f'Failed to initialize bot: {e}')
 
-    await bot.delete_webhook(drop_pending_updates=True)
-    print('Starting polling')
-    await dp.start_polling(bot)
-    print('Polling started')
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logging.info('Starting polling')
+        await dp.start_polling(bot)
+        logging.info('Polling started')
+    except Exception as e:
+        logging.error(f'Error with starting polling: {e}')
 
 
 class DiscountWrapper:
@@ -59,13 +70,23 @@ class DiscountWrapper:
 
 
 async def maxima_search(search_thing):
-    url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            html_content = await response.text()
-    soup = BeautifulSoup(html_content, 'html.parser')
-    data = soup.find_all("div", class_="col-third offer-item")
-    return scrap_data(data)
+    try:
+        url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                html_content = await response.text()
+        soup = BeautifulSoup(html_content, 'html.parser')
+        data = soup.find_all("div", class_="col-third offer-item")
+    except Exception as e:
+        logging.error(f'Invalid search body: {search_thing}\nError: {e}')
+        raise ValueError(e)
+
+    try:
+        scrapped_data = scrap_data(data)
+    except Exception as e:
+        logging.error(f'Error while scrapping data: {e}')
+        raise ValueError(e)
+    return scrapped_data
 
 
 def scrap_data(data):
@@ -157,7 +178,7 @@ def get_percent_spans(divs):
 
 @router.message(Command('start'))
 async def start_command(message: types.Message):
-    print('Received start command')
+    logging.info('Received start command')
     await message.answer(
         'Hello! This is discount search bot. \n'
         'Currently it works only with maxima offers. \n'
@@ -167,6 +188,7 @@ async def start_command(message: types.Message):
 
 @router.message(F.text)
 async def search(message: Message):
+    logging.info(f'Searching: \'{message.text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
     results = await maxima_search(message.text)
     if not results:
         await message.answer('Nothing found')
