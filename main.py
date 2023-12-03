@@ -213,6 +213,39 @@ def get_percent_spans(divs):
     return div_obj
 
 
+async def search_product(message, search_text):
+    logging.info(
+        f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
+    results = await maxima_search(search_text)
+    if not results:
+        await message.answer('Nothing found')
+    else:
+        for result in results:
+            maxima_prefix = 'https://www.maxima.lv/'
+            img_url = maxima_prefix + result.image_url
+            cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
+            await message.answer_photo(cleaned_url)
+
+            formatted_message = ''
+            if result.old_price is not None:
+                formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
+            if result.new_price is not None:
+                formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
+            if result.title is not None:
+                formatted_message = formatted_message + f'{result.title}'
+            if result.date is not None:
+                formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
+
+            await message.answer(formatted_message)
+
+
+async def search_product_by_name(message, search_text):
+    try:
+        await search_product(message, search_text)
+    except Exception as error:
+        logging.error(f'Error while searching for product \'{search_text}\': {error}')
+
+
 @router.message(Command('start'))
 async def start_command(message: types.Message):
     logging.info('Received start command')
@@ -223,35 +256,31 @@ async def start_command(message: types.Message):
     )
 
 
+@router.message(Command('categories'))
+async def categories(message: types.Message):
+    logging.info('Received categories command')
+    kb = [
+        [
+            types.KeyboardButton(text='🥩 Meat'),
+            types.KeyboardButton(text='🐟 Fish')
+        ]
+    ]
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=kb,
+        resize_keyboard=True,
+        input_field_placeholder='Choose category'
+    )
+    await message.answer('Please choose category', reply_markup=keyboard)
+
+
 @router.message(F.text)
 async def search(message: Message):
-    search_text = message.text
-    try:
-        logging.info(
-            f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
-        results = await maxima_search(search_text)
-        if not results:
-            await message.answer('Nothing found')
-        else:
-            for result in results:
-                maxima_prefix = 'https://www.maxima.lv/'
-                img_url = maxima_prefix + result.image_url
-                cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
-                await message.answer_photo(cleaned_url)
-
-                formatted_message = ''
-                if result.old_price is not None:
-                    formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
-                if result.new_price is not None:
-                    formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
-                if result.title is not None:
-                    formatted_message = formatted_message + f'{result.title}'
-                if result.date is not None:
-                    formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
-
-                await message.answer(formatted_message)
-    except Exception as error:
-        logging.error(f'Error while searching for product \'{search_text}\': {error}')
+    value = message.text
+    if 'meat' in value.lower():
+        value = 'gala'
+    if 'fish' in value.lower():
+        value = 'zivis'
+    await search_product_by_name(message, value)
 
 
 if __name__ == "__main__":
