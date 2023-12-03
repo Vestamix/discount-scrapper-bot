@@ -7,17 +7,23 @@ from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
 from aiogram.filters import Command
 
+print('Initializing router')
 router = Router()
+print(f'Router initialized: {router.name}')
 
 
 async def main():
+    print("Generating bot")
     token = os.environ.get("API_KEY")
     bot = Bot(token=token, parse_mode='HTML')
     dp = Dispatcher()
     dp.include_router(router)
+    print(f'Bot initialized with id: {bot.id}')
 
     await bot.delete_webhook(drop_pending_updates=True)
+    print('Starting polling')
     await dp.start_polling(bot)
+    print('Polling started')
 
 
 class DiscountWrapper:
@@ -151,6 +157,7 @@ def get_percent_spans(divs):
 
 @router.message(Command('start'))
 async def start_command(message: types.Message):
+    print('Received start command')
     await message.answer(
         'Hello! This is discount search bot. \n'
         'Currently it works only with maxima offers. \n'
