@@ -69,12 +69,16 @@ class DiscountWrapper:
         self.date = date
 
 
+async def fetch_html_content(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            return await response.text()
+
+
 async def maxima_search(search_thing):
     try:
         url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                html_content = await response.text()
+        html_content = fetch_html_content(url)
         soup = BeautifulSoup(html_content, 'html.parser')
         data = soup.find_all("div", class_="col-third offer-item")
     except Exception as e:
@@ -188,29 +192,38 @@ async def start_command(message: types.Message):
 
 @router.message(F.text)
 async def search(message: Message):
-    logging.info(f'Searching: \'{message.text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
-    results = await maxima_search(message.text)
-    if not results:
-        await message.answer('Nothing found')
-    else:
-        for result in results:
-            maxima_prefix = 'https://www.maxima.lv/'
-            img_url = maxima_prefix + result.image_url
-            cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
-            await message.answer_photo(cleaned_url)
+    search_text = message.text
+    try:
+        logging.info(f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
+        results = await maxima_search(search_text)
+        if not results:
+            await message.answer('Nothing found')
+        else:
+            for result in results:
+                maxima_prefix = 'https://www.maxima.lv/'
+                img_url = maxima_prefix + result.image_url
+                cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
+                await message.answer_photo(cleaned_url)
 
-            formatted_message = ''
-            if result.old_price is not None:
-                formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
-            if result.new_price is not None:
-                formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
-            if result.title is not None:
-                formatted_message = formatted_message + f'{result.title}'
-            if result.date is not None:
-                formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
+                formatted_message = ''
+                if result.old_price is not None:
+                    formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
+                if result.new_price is not None:
+                    formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
+                if result.title is not None:
+                    formatted_message = formatted_message + f'{result.title}'
+                if result.date is not None:
+                    formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
 
-            await message.answer(formatted_message)
+                await message.answer(formatted_message)
+    except Exception as error:
+        logging.error(f'Error while searching for product \'{search_text}\': {error}')
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logging.error(f'Error in main: {e}')
