@@ -21,14 +21,20 @@ async def health_check(request):
     logging.info('Called for healthcheck')
     return web.Response(text='Bot is healthy')
 
+
+async def index(request):
+    return web.Response(text='Welcome to the Discount Bot!')
+
+
 app = web.Application()
+app.router.add_get('/', index)
 app.router.add_get('/health', health_check)
 
 
 async def start_server():
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, 'localhost', 8080)
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
     logging.info(f'Web app started at {site.name}')
 
