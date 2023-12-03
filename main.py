@@ -3,6 +3,7 @@ import aiohttp
 import os
 import asyncio
 import logging
+import json
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
@@ -13,8 +14,12 @@ logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
 router = Router()
 logging.info(f'Router initialized: {router.name}')
-bot = None
-dp = None
+token = os.environ.get("API_KEY")
+bot = Bot(token=token, parse_mode='HTML')
+dp = Dispatcher()
+dp.include_router(router)
+logging.info(f'Bot initialized with id: {bot.id}')
+
 
 
 async def health_check(request):
@@ -40,15 +45,6 @@ async def start_server():
 
 
 async def start_bot():
-    global bot, dp
-    try:
-        token = os.environ.get("API_KEY")
-        bot = Bot(token=token, parse_mode='HTML')
-        dp = Dispatcher()
-        dp.include_router(router)
-        logging.info(f'Bot initialized with id: {bot.id}')
-    except Exception as e:
-        logging.error(f'Failed to initialize bot: {e}')
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info('Starting polling')
@@ -102,17 +98,25 @@ class DiscountWrapper:
         self.date = date
 
 
-async def fetch_html_content(url):
+async def fetch_html_content(url, params=None):
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
+        async with session.get(url, params=params) as response:
             return await response.text()
 
 
-async def maxima_search(search_thing):
+async def maxima_search(search_thing, limit, offset):
     try:
-        url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
-        html_content = await fetch_html_content(url)
-        soup = BeautifulSoup(html_content, 'html.parser')
+        url = f'https://www.maxima.lv/ajax/salesloadmore'  # &limit=1&search=&offset={offset}
+        params = {
+            'sort_by': 'newest',
+            'limit': limit,
+            'search': search_thing,
+            'offset': offset
+        }
+        html_content = await fetch_html_content(url, params)
+        jsons = json.loads(html_content)
+        content = jsons.get('html', '')
+        soup = BeautifulSoup(content, 'html.parser')
         data = soup.find_all("div", class_="col-third offer-item")
     except Exception as e:
         logging.error(f'Invalid search body: {search_thing}\nError: {e}')
@@ -213,10 +217,10 @@ def get_percent_spans(divs):
     return div_obj
 
 
-async def search_product(message, search_text):
+async def search_product(message, search_text, limit, offset):
     logging.info(
         f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
-    results = await maxima_search(search_text)
+    results = await maxima_search(search_text, limit, offset)
     if not results:
         await message.answer('Nothing found')
     else:
@@ -239,9 +243,9 @@ async def search_product(message, search_text):
             await message.answer(formatted_message)
 
 
-async def search_product_by_name(message, search_text):
+async def search_product_by_name(message, search_text, limit, offset):
     try:
-        await search_product(message, search_text)
+        await search_product(message, search_text, limit, offset)
     except Exception as error:
         logging.error(f'Error while searching for product \'{search_text}\': {error}')
 
@@ -280,7 +284,26 @@ async def search(message: Message):
         value = 'gala'
     if 'fish' in value.lower():
         value = 'zivis'
-    await search_product_by_name(message, value)
+
+    await search_product_by_name(message, value, limit=5, offset=10)
+    offset = 10
+    button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{offset}_{value}')
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+    await message.reply(text='Load more products', reply_markup=keyboard)
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith('load_more'))
+async def load_more(callback_query: types.CallbackQuery):
+    offset = int(callback_query.data.split('_')[-2])
+    value = callback_query.data.split('_')[-1]
+
+    new_offset = offset + 5
+    message = callback_query.message
+    await search_product_by_name(message, value, limit=5, offset=new_offset)
+
+    button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{new_offset}_{value}')
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+    await bot.send_message(chat_id=callback_query.message.chat.id, text='Load more', reply_markup=keyboard)
 
 
 if __name__ == "__main__":
