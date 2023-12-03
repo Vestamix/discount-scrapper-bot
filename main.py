@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
@@ -16,9 +17,24 @@ bot = None
 dp = None
 
 
-async def main():
+async def health_check(request):
+    logging.info('Called for healthcheck')
+    return web.Response(text='Bot is healthy')
+
+app = web.Application()
+app.router.add_get('/health', health_check)
+
+
+async def start_server():
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, 'localhost', 8080)
+    await site.start()
+    logging.info(f'Web app started at {site.name}')
+
+
+async def start_bot():
     global bot, dp
-    logging.info('Initializing bot')
     try:
         token = os.environ.get("API_KEY")
         bot = Bot(token=token, parse_mode='HTML')
@@ -27,14 +43,25 @@ async def main():
         logging.info(f'Bot initialized with id: {bot.id}')
     except Exception as e:
         logging.error(f'Failed to initialize bot: {e}')
-
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info('Starting polling')
         await dp.start_polling(bot)
         logging.info('Polling started')
     except Exception as e:
-        logging.error(f'Error with starting polling: {e}')
+        logging.error(f'Error with starting polling or web app: {e}')
+
+
+async def main():
+    global bot, dp
+    try:
+        logging.info('Starting web app')
+        await start_server()
+    except Exception as e:
+        logging.error(f'Web app failed to start: {e}')
+
+    logging.info('Initializing bot')
+    await start_bot()
 
 
 class DiscountWrapper:
@@ -78,7 +105,7 @@ async def fetch_html_content(url):
 async def maxima_search(search_thing):
     try:
         url = f'https://www.maxima.lv/ajax/salesloadmore?sort_by=newest&search={search_thing}'  # &limit=1&search=
-        html_content = fetch_html_content(url)
+        html_content = await fetch_html_content(url)
         soup = BeautifulSoup(html_content, 'html.parser')
         data = soup.find_all("div", class_="col-third offer-item")
     except Exception as e:
@@ -194,7 +221,8 @@ async def start_command(message: types.Message):
 async def search(message: Message):
     search_text = message.text
     try:
-        logging.info(f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
+        logging.info(
+            f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
         results = await maxima_search(search_text)
         if not results:
             await message.answer('Nothing found')
@@ -222,7 +250,9 @@ async def search(message: Message):
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        loop = asyncio.get_event_loop()
+        tasks = asyncio.gather(main(), asyncio.sleep(1))
+        loop.run_until_complete(tasks)
     except KeyboardInterrupt:
         pass
     except Exception as e:
