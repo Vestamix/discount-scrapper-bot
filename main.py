@@ -10,6 +10,9 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from aiohttp import web
 
+DEFAULT_LIMIT = 5
+DEFAULT_OFFSET = 10
+
 logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
 router = Router()
@@ -19,7 +22,6 @@ bot = Bot(token=token, parse_mode='HTML')
 dp = Dispatcher()
 dp.include_router(router)
 logging.info(f'Bot initialized with id: {bot.id}')
-
 
 
 async def health_check(request):
@@ -217,12 +219,13 @@ def get_percent_spans(divs):
     return div_obj
 
 
-async def search_product(message, search_text, limit, offset):
+async def search_product(message, search_text, limit, offset) -> int:
     logging.info(
         f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
     results = await maxima_search(search_text, limit, offset)
     if not results:
         await message.answer('Nothing found')
+        return 0
     else:
         for result in results:
             maxima_prefix = 'https://www.maxima.lv/'
@@ -241,11 +244,12 @@ async def search_product(message, search_text, limit, offset):
                 formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
 
             await message.answer(formatted_message)
+        return len(results)
 
 
-async def search_product_by_name(message, search_text, limit, offset):
+async def search_product_by_name(message, search_text, limit, offset) -> int:
     try:
-        await search_product(message, search_text, limit, offset)
+        return await search_product(message, search_text, limit, offset)
     except Exception as error:
         logging.error(f'Error while searching for product \'{search_text}\': {error}')
 
@@ -285,25 +289,30 @@ async def search(message: Message):
     if 'fish' in value.lower():
         value = 'zivis'
 
-    await search_product_by_name(message, value, limit=5, offset=10)
-    offset = 10
-    button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{offset}_{value}')
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-    await message.reply(text='Load more products', reply_markup=keyboard)
+    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET)
+
+    if result_size == DEFAULT_LIMIT:
+        button = types.InlineKeyboardButton(text='Load more',
+                                            callback_data=f'load_more_{DEFAULT_OFFSET}_{value}_{message.message_id}')
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+        await message.reply(text='Load more', reply_markup=keyboard)
 
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('load_more'))
 async def load_more(callback_query: types.CallbackQuery):
-    offset = int(callback_query.data.split('_')[-2])
-    value = callback_query.data.split('_')[-1]
+    offset = int(callback_query.data.split('_')[-3])
+    value = callback_query.data.split('_')[-2]
+    message_id = int(callback_query.data.split('_')[-1])
 
     new_offset = offset + 5
     message = callback_query.message
-    await search_product_by_name(message, value, limit=5, offset=new_offset)
+    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=new_offset)
 
-    button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{new_offset}_{value}')
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-    await bot.send_message(chat_id=callback_query.message.chat.id, text='Load more', reply_markup=keyboard)
+    if result_size == DEFAULT_LIMIT:
+        button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{new_offset}_{value}_{message_id}')
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+        await bot.send_message(chat_id=message.chat.id, reply_to_message_id=message_id, text='Load more',
+                               reply_markup=keyboard)
 
 
 if __name__ == "__main__":
