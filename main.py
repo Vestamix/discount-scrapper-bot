@@ -270,7 +270,9 @@ async def categories(message: types.Message):
     kb = [
         [
             types.KeyboardButton(text='🥩 Meat'),
-            types.KeyboardButton(text='🐟 Fish')
+            types.KeyboardButton(text='🐟 Fish'),
+            types.KeyboardButton(text='🐈 Cat food'),
+            types.KeyboardButton(text='🍺 Beer')
         ]
     ]
     keyboard = types.ReplyKeyboardMarkup(
@@ -288,6 +290,10 @@ async def search(message: Message):
         value = 'gala'
     if 'fish' in value.lower():
         value = 'zivis'
+    if 'cat' in value.lower():
+        value = 'kaku'
+    if 'beer' in value.lower():
+        value = 'alus'
 
     result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET)
 
