@@ -9,9 +9,11 @@ from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiohttp import web
+from categories import Category
 
 DEFAULT_LIMIT = 5
 DEFAULT_OFFSET = 10
+ALL_CATEGORIES = Category.get_all_values()
 
 logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
@@ -22,6 +24,14 @@ bot = Bot(token=token, parse_mode='HTML')
 dp = Dispatcher()
 dp.include_router(router)
 logging.info(f'Bot initialized with id: {bot.id}')
+
+
+async def set_commands():
+    commands = [
+        types.BotCommand(command='/start', description='Get started with bot'),
+        types.BotCommand(command='/categories', description='Get categories of products')
+    ]
+    await bot.set_my_commands(commands)
 
 
 async def health_check(request):
@@ -50,6 +60,7 @@ async def start_bot():
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info('Starting polling')
+        await set_commands()
         await dp.start_polling(bot)
         logging.info('Polling started')
     except Exception as e:
@@ -106,7 +117,7 @@ async def fetch_html_content(url, params=None):
             return await response.text()
 
 
-async def maxima_search(search_thing, limit, offset):
+async def maxima_search(search_thing, limit, offset, category):
     try:
         url = f'https://www.maxima.lv/ajax/salesloadmore'  # &limit=1&search=&offset={offset}
         params = {
@@ -115,6 +126,9 @@ async def maxima_search(search_thing, limit, offset):
             'search': search_thing,
             'offset': offset
         }
+        if category is not None:
+            params.update({'categories[]': category})
+
         html_content = await fetch_html_content(url, params)
         jsons = json.loads(html_content)
         content = jsons.get('html', '')
@@ -135,7 +149,6 @@ async def maxima_search(search_thing, limit, offset):
 def scrap_data(data):
     results = []
     for dat in data:
-        # print(dat)
         result = DiscountWrapper()
 
         img_tag = dat.find('div', class_='img').find('img')
@@ -219,10 +232,10 @@ def get_percent_spans(divs):
     return div_obj
 
 
-async def search_product(message, search_text, limit, offset) -> int:
+async def search_product(message, search_text, limit, offset, category) -> int:
     logging.info(
         f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
-    results = await maxima_search(search_text, limit, offset)
+    results = await maxima_search(search_text, limit, offset, category)
     if not results:
         await message.answer('Nothing found')
         return 0
@@ -247,9 +260,9 @@ async def search_product(message, search_text, limit, offset) -> int:
         return len(results)
 
 
-async def search_product_by_name(message, search_text, limit, offset) -> int:
+async def search_product_by_name(message, search_text, limit, offset, category) -> int:
     try:
-        return await search_product(message, search_text, limit, offset)
+        return await search_product(message, search_text, limit, offset, category)
     except Exception as error:
         logging.error(f'Error while searching for product \'{search_text}\': {error}')
 
@@ -265,16 +278,9 @@ async def start_command(message: types.Message):
 
 
 @router.message(Command('categories'))
-async def categories(message: types.Message):
+async def categories_keyboard(message: types.Message):
     logging.info('Received categories command')
-    kb = [
-        [
-            types.KeyboardButton(text='🥩 Meat'),
-            types.KeyboardButton(text='🐟 Fish'),
-            types.KeyboardButton(text='🐈 Cat food'),
-            types.KeyboardButton(text='🍺 Beer')
-        ]
-    ]
+    kb = [[types.KeyboardButton(text=value) for value in ALL_CATEGORIES]]
     keyboard = types.ReplyKeyboardMarkup(
         keyboard=kb,
         resize_keyboard=True,
@@ -283,26 +289,57 @@ async def categories(message: types.Message):
     await message.answer('Please choose category', reply_markup=keyboard)
 
 
-@router.message(F.text)
-async def search(message: Message):
+async def handle_category_choice(message: types.Message):
     value = message.text
-    if 'meat' in value.lower():
-        value = 'gala'
-    if 'fish' in value.lower():
-        value = 'zivis'
-    if 'cat' in value.lower():
-        value = 'kaku'
-    if 'beer' in value.lower():
-        value = 'alus'
+    category = None
 
-    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET)
+    if value == '🥩 Meat':
+        category = '67'
 
+    result_size = await search_product_by_name(message, '', limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET,
+                                               category=category)
     if result_size == DEFAULT_LIMIT:
         button = types.InlineKeyboardButton(text='Load more',
-                                            callback_data=f'load_more_{DEFAULT_OFFSET}_{value}_{message.message_id}')
+                                            callback_data=f'category_load_more_'
+                                                          f'{DEFAULT_OFFSET}_{category}_{message.message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
         await message.reply(text='Load more', reply_markup=keyboard)
 
+
+@router.message(F.text)
+async def search(message: Message):
+    value = message.text
+
+    if value in ALL_CATEGORIES:
+        await handle_category_choice(message)
+    else:
+        result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET,
+                                                   category=None)
+
+        if result_size == DEFAULT_LIMIT:
+            button = types.InlineKeyboardButton(text='Load more',
+                                                callback_data=f'load_more_'
+                                                              f'{DEFAULT_OFFSET}_{value}_{message.message_id}')
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+            await message.reply(text='Load more', reply_markup=keyboard)
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith('category_load_more'))
+async def load_more(callback_query: types.CallbackQuery):
+    offset = int(callback_query.data.split('_')[-3])
+    category = callback_query.data.split('_')[-2]
+    message_id = int(callback_query.data.split('_')[-1])
+
+    new_offset = offset + 5
+    message = callback_query.message
+    result_size = await search_product_by_name(message, '', limit=DEFAULT_LIMIT, offset=new_offset, category=category)
+
+    if result_size == DEFAULT_LIMIT:
+        button = types.InlineKeyboardButton(text='Load more',
+                                            callback_data=f'category_load_more_{new_offset}_{category}_{message_id}')
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+        await bot.send_message(chat_id=message.chat.id, reply_to_message_id=message_id, text='Load more',
+                               reply_markup=keyboard)
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('load_more'))
 async def load_more(callback_query: types.CallbackQuery):
@@ -312,10 +349,11 @@ async def load_more(callback_query: types.CallbackQuery):
 
     new_offset = offset + 5
     message = callback_query.message
-    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=new_offset)
+    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=new_offset, category=None)
 
     if result_size == DEFAULT_LIMIT:
-        button = types.InlineKeyboardButton(text='Load more', callback_data=f'load_more_{new_offset}_{value}_{message_id}')
+        button = types.InlineKeyboardButton(text='Load more',
+                                            callback_data=f'load_more_{new_offset}_{value}_{message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
         await bot.send_message(chat_id=message.chat.id, reply_to_message_id=message_id, text='Load more',
                                reply_markup=keyboard)
