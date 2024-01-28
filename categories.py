@@ -3,7 +3,7 @@ from enum import Enum
 
 class Category(Enum):
     MEAT = '🥩 Meat'
-    FISH = '🐟 Fish'
+    VEGETABLES = '🍅 Vegetables'
     CAT_FOOD = '🐈 Cat food'
     BEER = '🍺 Beer'
 

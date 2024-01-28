@@ -4,6 +4,7 @@ import os
 import asyncio
 import logging
 import json
+from typing import Optional
 from bs4 import BeautifulSoup
 from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
@@ -29,7 +30,9 @@ logging.info(f'Bot initialized with id: {bot.id}')
 async def set_commands():
     commands = [
         types.BotCommand(command='/start', description='Get started with bot'),
-        types.BotCommand(command='/categories', description='Get categories of products')
+        types.BotCommand(command='/meat', description='🥩 Meat'),
+        types.BotCommand(command='/veggies', description='🍅 Vegetables'),
+        types.BotCommand(command='/bread', description='🍞 Bread')
     ]
     await bot.set_my_commands(commands)
 
@@ -89,27 +92,6 @@ class DiscountWrapper:
         self.image_url = None
         self.date = None
 
-    def set_title(self, title):
-        self.title = title
-
-    def set_old_price(self, old_price):
-        self.old_price = old_price
-
-    def set_new_price(self, new_price):
-        self.new_price = new_price
-
-    def set_paldies_price(self, paldies_price):
-        self.paldies_price = paldies_price
-
-    def set_percent(self, percent):
-        self.percent = percent
-
-    def set_image_url(self, image_url):
-        self.image_url = image_url
-
-    def set_date(self, date):
-        self.date = date
-
 
 async def fetch_html_content(url, params=None):
     async with aiohttp.ClientSession() as session:
@@ -123,26 +105,33 @@ async def maxima_search(search_thing, limit, offset, category):
         params = {
             'sort_by': 'newest',
             'limit': limit,
-            'search': search_thing,
-            'offset': offset
+            'search': '',
+            'search1': search_thing
         }
+        if offset is not None:
+            params.update({'offset': offset})
         if category is not None:
             params.update({'categories[]': category})
 
         html_content = await fetch_html_content(url, params)
-        jsons = json.loads(html_content)
-        content = jsons.get('html', '')
+
+        try:
+            jsons = json.loads(html_content)
+            content = jsons.get('html', '')
+        except ValueError:
+            content = html_content
         soup = BeautifulSoup(content, 'html.parser')
         data = soup.find_all("div", class_="col-third offer-item")
-    except Exception as e:
-        logging.error(f'Invalid search body: {search_thing}\nError: {e}')
-        raise ValueError(e)
+
+    except Exception as search_exception:
+        logging.error(f'Invalid search body: {search_thing}\nError: {search_exception}')
+        raise ValueError(search_exception)
 
     try:
         scrapped_data = scrap_data(data)
-    except Exception as e:
-        logging.error(f'Error while scrapping data: {e}')
-        raise ValueError(e)
+    except Exception as scrap_exception:
+        logging.error(f'Error while scrapping data: {scrap_exception}')
+        raise ValueError(scrap_exception)
     return scrapped_data
 
 
@@ -153,7 +142,7 @@ def scrap_data(data):
 
         img_tag = dat.find('div', class_='img').find('img')
         src_value = img_tag.get('src')
-        result.set_image_url(src_value)
+        result.image_url = src_value
 
         bottom = dat.find("div", class_="bottom-icon")
         paldies = dat.find("div", class_='t1 paldies-card')
@@ -161,7 +150,7 @@ def scrap_data(data):
         percent_wrapper = dat.find("div", class_='percents_wrapper')
         if bottom:
             percent = get_percent_spans(bottom)
-            result.set_percent(percent)
+            result.percent = percent
         elif paldies:
             paldies_spans = paldies.find_all('span')
             paldies_price = ''
@@ -173,10 +162,10 @@ def scrap_data(data):
                     paldies_price = paldies_price + ',' + paldies_span.text
                 elif 'eur' in paldies_class:
                     paldies_price = paldies_price + paldies_span.text
-            result.set_paldies_price(paldies_price)
+            result.paldies_price = paldies_price
         elif percent_wrapper:
             percent = get_percent_spans(percent_wrapper)
-            result.set_percent(percent)
+            result.percent = percent
 
         new_price_div = dat.find("div", class_="t1")
         if new_price_div:
@@ -190,7 +179,7 @@ def scrap_data(data):
                     new_price = new_price + ',' + new_price_span.text
                 elif 'eur' in paldies_class:
                     new_price = new_price + new_price_span.text
-            result.set_new_price(new_price)
+            result.new_price = new_price
 
         old_price_div = dat.find("div", class_="t3")
         if old_price_div:
@@ -204,16 +193,16 @@ def scrap_data(data):
                     old_price = old_price + ',' + old_price_span.text
                 elif 'eur' in old_price_class:
                     old_price = old_price + old_price_span.text
-            result.set_old_price(old_price)
+            result.old_price = old_price
 
         title_div = dat.find("div", class_='title')
-        result.set_title(title_div.text)
+        result.title = title_div.text
 
         date_interval_divs = dat.find_all("div", attrs={"data-dates-interval": True})
         if date_interval_divs:
             for date_div in date_interval_divs:
                 date_interval = date_div["data-dates-interval"]
-                result.set_date(date_interval)
+                result.date = date_interval
         results.append(result)
     return results
 
@@ -232,37 +221,34 @@ def get_percent_spans(divs):
     return div_obj
 
 
-async def search_product(message, search_text, limit, offset, category) -> int:
-    logging.info(
-        f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
-    results = await maxima_search(search_text, limit, offset, category)
-    if not results:
-        await message.answer('Nothing found')
-        return 0
-    else:
-        for result in results:
-            maxima_prefix = 'https://www.maxima.lv/'
-            img_url = maxima_prefix + result.image_url
-            cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
-            await message.answer_photo(cleaned_url)
-
-            formatted_message = ''
-            if result.old_price is not None:
-                formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
-            if result.new_price is not None:
-                formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
-            if result.title is not None:
-                formatted_message = formatted_message + f'{result.title}'
-            if result.date is not None:
-                formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
-
-            await message.answer(formatted_message)
-        return len(results)
-
-
-async def search_product_by_name(message, search_text, limit, offset, category) -> int:
+async def search_product(message, search_text, limit,
+                         offset: Optional[int] = None, category: Optional[str] = None) -> int:
     try:
-        return await search_product(message, search_text, limit, offset, category)
+        logging.info(
+            f'Searching: \'{search_text}\' from user: {message.from_user.full_name} (ID:{message.from_user.id})')
+        results = await maxima_search(search_text, limit, offset, category)
+        if not results:
+            await message.answer('Nothing found')
+            return 0
+        else:
+            for result in results:
+                maxima_prefix = 'https://www.maxima.lv/'
+                img_url = maxima_prefix + result.image_url
+                cleaned_url = re.sub(r'\.png.*$', '.png', img_url)
+                await message.answer_photo(cleaned_url)
+
+                formatted_message = ''
+                if result.old_price is not None:
+                    formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
+                if result.new_price is not None:
+                    formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
+                if result.title is not None:
+                    formatted_message = formatted_message + f'{result.title}'
+                if result.date is not None:
+                    formatted_message = formatted_message + f'\n\n<em>{result.date}</em>'
+
+                await message.answer(formatted_message)
+            return len(results)
     except Exception as error:
         logging.error(f'Error while searching for product \'{search_text}\': {error}')
 
@@ -277,51 +263,45 @@ async def start_command(message: types.Message):
     )
 
 
-@router.message(Command('categories'))
-async def categories_keyboard(message: types.Message):
-    logging.info('Received categories command')
-    kb = [[types.KeyboardButton(text=value) for value in ALL_CATEGORIES]]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True,
-        input_field_placeholder='Choose category'
-    )
-    await message.answer('Please choose category', reply_markup=keyboard)
+@router.message(Command('meat'))
+async def categories_meat(message: types.Message):
+    category = '67'
+    await search_by_category(category, message)
 
 
-async def handle_category_choice(message: types.Message):
-    value = message.text
-    category = None
+@router.message(Command('veggies'))
+async def categories_veggies(message: types.Message):
+    category = '56'
+    await search_by_category(category, message)
 
-    if value == '🥩 Meat':
-        category = '67'
 
-    result_size = await search_product_by_name(message, '', limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET,
-                                               category=category)
+@router.message(Command('bread'))
+async def categories_veggies(message: types.Message):
+    category = '61'
+    await search_by_category(category, message)
+
+
+async def search_by_category(category, message):
+    result_size = await search_product(message, '', limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET, category=category)
     if result_size == DEFAULT_LIMIT:
-        button = types.InlineKeyboardButton(text='Load more',
+        button = types.InlineKeyboardButton(text='⏳',
                                             callback_data=f'category_load_more_'
                                                           f'{DEFAULT_OFFSET}_{category}_{message.message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-        await message.reply(text='Load more', reply_markup=keyboard)
+        await message.answer(text='Load more', reply_markup=keyboard)
 
 
 @router.message(F.text)
 async def search(message: Message):
     value = message.text
+    result_size = await search_product(message, value, limit=DEFAULT_LIMIT)
 
-    if value in ALL_CATEGORIES:
-        await handle_category_choice(message)
-    else:
-        result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET,
-                                                   category=None)
-
-        if result_size == DEFAULT_LIMIT:
-            button = types.InlineKeyboardButton(text='Load more',
-                                                callback_data=f'load_more_'
-                                                              f'{DEFAULT_OFFSET}_{value}_{message.message_id}')
-            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-            await message.reply(text='Load more', reply_markup=keyboard)
+    if result_size == DEFAULT_LIMIT:
+        button = types.InlineKeyboardButton(text='⏳',
+                                            callback_data=f'load_more_'
+                                                          f'{DEFAULT_OFFSET}_{value}_{message.message_id}')
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+        await message.reply(text='Load more', reply_markup=keyboard)
 
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('category_load_more'))
@@ -332,14 +312,15 @@ async def load_more(callback_query: types.CallbackQuery):
 
     new_offset = offset + 5
     message = callback_query.message
-    result_size = await search_product_by_name(message, '', limit=DEFAULT_LIMIT, offset=new_offset, category=category)
+    result_size = await search_product(message, '', limit=DEFAULT_LIMIT, offset=new_offset, category=category)
 
     if result_size == DEFAULT_LIMIT:
-        button = types.InlineKeyboardButton(text='Load more',
+        button = types.InlineKeyboardButton(text='⏳',
                                             callback_data=f'category_load_more_{new_offset}_{category}_{message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
         await bot.send_message(chat_id=message.chat.id, reply_to_message_id=message_id, text='Load more',
                                reply_markup=keyboard)
+
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('load_more'))
 async def load_more(callback_query: types.CallbackQuery):
@@ -349,10 +330,10 @@ async def load_more(callback_query: types.CallbackQuery):
 
     new_offset = offset + 5
     message = callback_query.message
-    result_size = await search_product_by_name(message, value, limit=DEFAULT_LIMIT, offset=new_offset, category=None)
+    result_size = await search_product(message, value, limit=DEFAULT_LIMIT, offset=new_offset, category=None)
 
     if result_size == DEFAULT_LIMIT:
-        button = types.InlineKeyboardButton(text='Load more',
+        button = types.InlineKeyboardButton(text='⏳',
                                             callback_data=f'load_more_{new_offset}_{value}_{message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
         await bot.send_message(chat_id=message.chat.id, reply_to_message_id=message_id, text='Load more',
