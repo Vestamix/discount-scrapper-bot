@@ -10,7 +10,6 @@ from aiogram import Bot, Dispatcher, types, F, Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiohttp import web
-from categories import Category
 
 DEFAULT_LIMIT = 5
 DEFAULT_OFFSET = 10
