@@ -13,7 +13,6 @@ from aiohttp import web
 
 DEFAULT_LIMIT = 5
 DEFAULT_OFFSET = 10
-ALL_CATEGORIES = Category.get_all_values()
 
 logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
