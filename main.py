@@ -240,6 +240,8 @@ async def search_product(message, search_text, limit,
                     formatted_message = formatted_message + f'<strike>{result.old_price}</strike>\n'
                 if result.new_price is not None:
                     formatted_message = formatted_message + f'<b>{result.new_price}</b>\n\n'
+                if result.percent is not None:
+                    formatted_message = formatted_message + f'<b>{result.percent}</b>\n\n'
                 if result.title is not None:
                     formatted_message = formatted_message + f'{result.title}'
                 if result.date is not None:
