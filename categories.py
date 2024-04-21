@@ -2,11 +2,11 @@ from enum import Enum
 
 
 class Category(Enum):
-    MEAT = '🥩 Meat'
-    VEGETABLES = '🍅 Vegetables'
-    CAT_FOOD = '🐈 Cat food'
-    BEER = '🍺 Beer'
-
-    @classmethod
-    def get_all_values(cls):
-        return [member.value for member in cls.__members__.values()]
+    MEAT = '67'
+    VEGGIES = '56'
+    BREAD = '61'
+    DAIRY = '60'
+    FISH = '49'
+    GASTRONOMY = '65'
+    BAKERY = '41'
+    SWEETS = '54'
