@@ -18,7 +18,10 @@ category_commands = {
     '/veggies': Category.VEGGIES,
     '/bread': Category.BREAD,
     '/fish': Category.FISH,
-    '/dairy': Category.DAIRY
+    '/dairy': Category.DAIRY,
+    '/gastronomy': Category.GASTRONOMY,
+    '/bakery': Category.BAKERY,
+    '/sweets': Category.SWEETS
 }
 
 logging.basicConfig(level=logging.INFO)
@@ -39,7 +42,10 @@ async def set_commands():
         types.BotCommand(command='/veggies', description='🍅 Vegetables'),
         types.BotCommand(command='/bread', description='🍞 Bread'),
         types.BotCommand(command='/fish', description='🐟 Fish'),
-        types.BotCommand(command='/dairy', description='🥛🥚 Milk and egg products')
+        types.BotCommand(command='/dairy', description='🥛🥚 Milk and egg products'),
+        types.BotCommand(command='/gastronomy', description='🥫 Gastronomy'),
+        types.BotCommand(command='/bakery', description='🧁 Bakery'),
+        types.BotCommand(command='/sweets', description='🍫 Sweets')
     ]
     await bot.set_my_commands(commands)
 

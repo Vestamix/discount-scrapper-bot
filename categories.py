@@ -7,3 +7,6 @@ class Category(Enum):
     BREAD = '61'
     DAIRY = '60'
     FISH = '49'
+    GASTRONOMY = '65'
+    BAKERY = '41'
+    SWEETS = '54'
