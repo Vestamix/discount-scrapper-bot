@@ -1,12 +1,10 @@
-import logging
-from aiohttp import web
-from bs4 import BeautifulSoup
-from discount_wrapper import DiscountWrapper
-import re
-import aiohttp
-import os
-import asyncio
 import json
+import logging
+
+import aiohttp
+from bs4 import BeautifulSoup
+
+from discount_wrapper import DiscountWrapper
 
 
 async def maxima_search(search_thing, limit, offset, category):

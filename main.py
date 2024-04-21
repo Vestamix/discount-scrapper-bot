@@ -1,15 +1,25 @@
-import aiohttp
-import os
 import asyncio
 import logging
+import os
+
 from aiogram import Bot, Dispatcher, types, F, Router
-from aiogram.types import Message
 from aiogram.filters import Command
+from aiogram.types import Message
 from aiohttp import web
+
+from categories import Category
 from search_service import search_product
 
 DEFAULT_LIMIT = 5
 DEFAULT_OFFSET = 10
+
+category_commands = {
+    '/meat': Category.MEAT,
+    '/veggies': Category.VEGGIES,
+    '/bread': Category.BREAD,
+    '/fish': Category.FISH,
+    '/dairy': Category.DAIRY
+}
 
 logging.basicConfig(level=logging.INFO)
 logging.info('Initializing router')
@@ -27,7 +37,9 @@ async def set_commands():
         types.BotCommand(command='/start', description='Get started with bot'),
         types.BotCommand(command='/meat', description='🥩 Meat'),
         types.BotCommand(command='/veggies', description='🍅 Vegetables'),
-        types.BotCommand(command='/bread', description='🍞 Bread')
+        types.BotCommand(command='/bread', description='🍞 Bread'),
+        types.BotCommand(command='/fish', description='🐟 Fish'),
+        types.BotCommand(command='/dairy', description='🥛🥚 Milk and egg products')
     ]
     await bot.set_my_commands(commands)
 
@@ -81,51 +93,37 @@ async def main():
 async def start_command(message: types.Message):
     logging.info('Received start command')
     await message.answer(
-        'Hello! This is discount search bot. \n'
-        'Currently it works only with maxima offers. \n'
-        'To use it, just type product name or type (you can use EN letters e.g. Kaku bariba)\n'
+        'Hello! This is maxima discount search bot. \n\n'
+        'Use \'☰ Menu\' button to search by categories. \n'
+        'Or just type product name or type (you can use ENG letters e.g. Kaku bariba)\n'
     )
-
-
-@router.message(Command('meat'))
-async def categories_meat(message: types.Message):
-    category = '67'
-    await search_by_category(category, message)
-
-
-@router.message(Command('veggies'))
-async def categories_veggies(message: types.Message):
-    category = '56'
-    await search_by_category(category, message)
-
-
-@router.message(Command('bread'))
-async def categories_veggies(message: types.Message):
-    category = '61'
-    await search_by_category(category, message)
-
-
-async def search_by_category(category, message):
-    result_size = await search_product(message, '', limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET, category=category)
-    if result_size == DEFAULT_LIMIT:
-        button = types.InlineKeyboardButton(text='⏳',
-                                            callback_data=f'category_load_more_'
-                                                          f'{DEFAULT_OFFSET}_{category}_{message.message_id}')
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-        await message.answer(text='Load more', reply_markup=keyboard)
 
 
 @router.message(F.text)
 async def search(message: Message):
     value = message.text
-    result_size = await search_product(message, value, limit=DEFAULT_LIMIT)
 
+    if value in category_commands:
+        await search_by_category(category_commands.get(value), message)
+    else:
+        result_size = await search_product(message, value, limit=DEFAULT_LIMIT)
+
+        if result_size == DEFAULT_LIMIT:
+            button = types.InlineKeyboardButton(text='⏳',
+                                                callback_data=f'load_more_'
+                                                              f'{DEFAULT_OFFSET}_{value}_{message.message_id}')
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
+            await message.reply(text='Load more', reply_markup=keyboard)
+
+
+async def search_by_category(category, message):
+    result_size = await search_product(message, '', limit=DEFAULT_LIMIT, offset=DEFAULT_OFFSET, category=category.value)
     if result_size == DEFAULT_LIMIT:
         button = types.InlineKeyboardButton(text='⏳',
-                                            callback_data=f'load_more_'
-                                                          f'{DEFAULT_OFFSET}_{value}_{message.message_id}')
+                                            callback_data=f'category_load_more_'
+                                                          f'{DEFAULT_OFFSET}_{category.value}_{message.message_id}')
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[button]])
-        await message.reply(text='Load more', reply_markup=keyboard)
+        await message.answer(text='Load more', reply_markup=keyboard)
 
 
 @dp.callback_query(lambda c: c.data and c.data.startswith('category_load_more'))
